@@ -104,6 +104,57 @@ namespace workspace {
   const extStrsProp = "extStrs";
   const execPathProp = "executablePath";
 
+  const _workspaceRootPath = (): (string | null) => {
+    if (!vs.workspace.workspaceFolders || vs.workspace.workspaceFolders[0].uri.scheme !== 'file') {
+      return null;
+    }
+
+    return vs.workspace.workspaceFolders[0].uri.fsPath;
+  }
+
+  const ws_root = _workspaceRootPath() || '.';
+  const user_dir = process.platform === 'win32' ? process.env['HOMEPATH']! : process.env['HOME']!;
+
+  // VSCode Default path variable replacements
+  const expansionVars = {
+    workspaceRoot: ws_root,
+    workspaceFolder: ws_root,
+    workspaceRootFolderName: path.basename(ws_root),
+    userHome: user_dir,
+  };
+
+  const escapeStringForRegex = (str: string): string => {
+    return str.replace(/([.*+?^=!:${}()|\[\]\/\\])/g, '\\$1');
+  }
+
+  const replaceAll = (str: string, needle: string, what: string) => {
+    const pattern = escapeStringForRegex(needle);
+    const re = new RegExp(pattern, 'g');
+    return str.replace(re, what);
+  }
+
+  const expandPath = (tmpl: string): string => {
+    const subs = new Map<string, string>();
+    const var_re = /\$\{(\w+)\}/g;
+
+    let mat: RegExpMatchArray|null = null;
+    while ((mat = var_re.exec(tmpl))) {
+      const full = mat[0];
+      const key = mat[1];
+      const repl = expansionVars[key];
+
+      if (!repl) {
+        console.log(`Invalid variable reference ${full} in string: ${tmpl}`);
+      } else {
+        subs.set(full, repl);
+      }
+    }
+
+    let final_str = tmpl;
+    subs.forEach((value, key) => { final_str = replaceAll(final_str, key, value); });
+    return final_str;
+  }
+
   export const extStrs = (): string => {
     const extStrsObj = vs.workspace.getConfiguration('jsonnet')[extStrsProp];
     return extStrsObj == null
@@ -134,7 +185,7 @@ namespace workspace {
     }
 
     return libPaths
-      .map(path => `-J ${path}`)
+      .map(path => `-J ${expandPath(path)}`)
       .join(" ");
   }
 
